@@ -46,8 +46,16 @@ function writeNote(file: string, fields: [string, string][], body: string): void
     writeFileSync(file, `${frontmatter(fields)}\n${body}\n`);
 }
 
+/** Everything both writers need: where to write, under which topic, and when. */
+interface WriteContext {
+    store: string;
+    topic: string;
+    body: string;
+    now: string;
+}
+
 /** Replace the topic state file, preserving the original creation date. */
-async function writeState(store: string, topic: string, body: string, now: string): Promise<MemoryWriteResult> {
+async function writeState({ store, topic, body, now }: WriteContext): Promise<MemoryWriteResult> {
     const file = path.join(store, topic, 'state.md');
     const previous = existsSync(file) ? parseFrontmatter(readFileSync(file, 'utf8')).meta : {};
     const id = `${topic}-state`;
@@ -79,10 +87,7 @@ function freeLogStem(directory: string, base: string): string {
 
 /** Add a dated log entry under the topic. */
 async function writeLog(
-    store: string,
-    topic: string,
-    body: string,
-    now: string,
+    { store, topic, body, now }: WriteContext,
     slug: string | undefined,
 ): Promise<MemoryWriteResult> {
     const requested = slug === undefined ? derivedSlug(body) : slugify(slug);
@@ -125,6 +130,6 @@ export async function writeMemory(input: MemoryWriteInput): Promise<MemoryWriteR
     }
 
     const clock = new Date();
-    const now = clock.toISOString();
-    return input.kind === 'state' ? writeState(store, topic, body, now) : writeLog(store, topic, body, now, input.slug);
+    const context: WriteContext = { store, topic, body, now: clock.toISOString() };
+    return input.kind === 'state' ? writeState(context) : writeLog(context, input.slug);
 }
