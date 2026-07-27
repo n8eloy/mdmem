@@ -9,14 +9,14 @@ const USAGE = `mdmem: no corpus configured.
 
 Create a memory home (default ~/.mdmem, override with MDMEM_HOME):
 
-  node src/cli.ts init
-  node src/cli.ts add ~/notes
+    node src/cli.ts init
+    node src/cli.ts add ~/notes
 
 Or pass an explicit corpus, which bypasses the config file entirely:
 
-  node src/server.ts  --roots ~/notes,~/work/docs
-  node src/indexer.ts --roots ~/notes --db ~/notes/.mdmem/mem.db
-  MDMEM_ROOTS=~/notes node src/indexer.ts
+    node src/server.ts  --roots ~/notes,~/work/docs
+    node src/indexer.ts --roots ~/notes --db ~/notes/.mdmem/mem.db
+    MDMEM_ROOTS=~/notes node src/indexer.ts
 
 Optional --db <path> (or MDMEM_DB) sets the index location. It defaults to
 <first-root>/.mdmem/mem.db with --roots, and to <home>/index.db otherwise.
@@ -27,7 +27,9 @@ export function flag(name: string): string | undefined {
     const cliArguments = process.argv.slice(2);
     const index = cliArguments.indexOf(`--${name}`);
     const next = cliArguments.at(index + 1);
-    if (index !== -1 && next && !next.startsWith('--')) return next;
+    if (index !== -1 && next && !next.startsWith('--')) {
+        return next;
+    }
     return cliArguments.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3);
 }
 
@@ -58,11 +60,18 @@ function isStringArray(value: unknown): value is string[] {
 
 export function readStoredConfig(): StoredConfig | undefined {
     const file = configPath();
-    if (!existsSync(file)) return undefined;
+    if (!existsSync(file)) {
+        return undefined;
+    }
     const parsed: unknown = JSON.parse(readFileSync(file, 'utf8'));
-    if (typeof parsed !== 'object' || parsed === null) throw new TypeError(`${file}: expected a JSON object`);
+    if (typeof parsed !== 'object' || parsed === null) {
+        throw new TypeError(`${file}: expected a JSON object`);
+    }
+
     const { store, roots } = parsed as Record<string, unknown>;
-    if (typeof store !== 'string') throw new TypeError(`${file}: "store" must be an absolute path`);
+    if (typeof store !== 'string') {
+        throw new TypeError(`${file}: "store" must be an absolute path`);
+    }
     return { store: expand(store), roots: (isStringArray(roots) ? roots : []).map((r) => expand(r)) };
 }
 
@@ -81,7 +90,10 @@ interface Resolved {
 const cache: { resolved?: Resolved } = {};
 
 function resolve(): Resolved {
-    if (cache.resolved) return cache.resolved;
+    if (cache.resolved) {
+        return cache.resolved;
+    }
+
     const explicitRoots = (flag('roots') ?? process.env.MDMEM_ROOTS ?? '')
         .split(',')
         .map((r) => r.trim())
@@ -96,6 +108,7 @@ function resolve(): Resolved {
         };
         return cache.resolved;
     }
+
     const stored = readStoredConfig();
     if (!stored) {
         process.stderr.write(USAGE);

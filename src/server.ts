@@ -71,7 +71,9 @@ const server = new Server({ name: 'mdmem', version: '0.1.0' }, { capabilities: {
 const state = { pending: 0, isStdinClosed: false };
 
 const exitWhenDrained = () => {
-    if (state.isStdinClosed && state.pending === 0) process.exit(0);
+    if (state.isStdinClosed && state.pending === 0) {
+        process.exit(0);
+    }
 };
 
 process.stdin.on('close', () => {
@@ -88,35 +90,53 @@ function optionalString(value: unknown): string | undefined {
     return typeof value === 'string' ? value : undefined;
 }
 
+type ToolArguments = Record<string, unknown>;
+
+async function searchTool(toolArguments: ToolArguments): Promise<CallToolResult> {
+    const requestedK = Number(toolArguments.k);
+    const k = requestedK === 0 || Number.isNaN(requestedK) ? 8 : requestedK;
+    const hits = await search(optionalString(toolArguments.query) ?? '', k, {
+        type: optionalString(toolArguments.type),
+        topic: optionalString(toolArguments.topic),
+    });
+    return jsonResult(hits);
+}
+
+function getTool(toolArguments: ToolArguments): CallToolResult {
+    const id = optionalString(toolArguments.id) ?? '';
+    const filePath = resolvePath(id);
+    if (!filePath) {
+        return jsonResult({ error: `unknown id: ${id}` });
+    }
+    return jsonResult({ id, path: filePath, content: readFileSync(filePath, 'utf8') });
+}
+
+async function writeTool(toolArguments: ToolArguments): Promise<CallToolResult> {
+    const kind = optionalString(toolArguments.kind) ?? '';
+    if (kind !== 'state' && kind !== 'log') {
+        return jsonResult({ error: 'kind must be "state" or "log"' });
+    }
+    return jsonResult(
+        await writeMemory({
+            topic: optionalString(toolArguments.topic) ?? '',
+            kind,
+            content: optionalString(toolArguments.content) ?? '',
+            slug: optionalString(toolArguments.slug),
+        }),
+    );
+}
+
 async function dispatch(request: CallToolRequest): Promise<CallToolResult> {
-    const toolArguments = request.params.arguments ?? {};
+    const toolArguments: ToolArguments = request.params.arguments ?? {};
     switch (request.params.name) {
         case 'memory_search': {
-            const requestedK = Number(toolArguments.k);
-            const k = requestedK === 0 || Number.isNaN(requestedK) ? 8 : requestedK;
-            const hits = await search(optionalString(toolArguments.query) ?? '', k, {
-                type: optionalString(toolArguments.type),
-                topic: optionalString(toolArguments.topic),
-            });
-            return jsonResult(hits);
+            return await searchTool(toolArguments);
         }
         case 'memory_get': {
-            const id = optionalString(toolArguments.id) ?? '';
-            const filePath = resolvePath(id);
-            if (!filePath) return jsonResult({ error: `unknown id: ${id}` });
-            return jsonResult({ id, path: filePath, content: readFileSync(filePath, 'utf8') });
+            return getTool(toolArguments);
         }
         case 'memory_write': {
-            const kind = optionalString(toolArguments.kind) ?? '';
-            if (kind !== 'state' && kind !== 'log') return jsonResult({ error: 'kind must be "state" or "log"' });
-            return jsonResult(
-                await writeMemory({
-                    topic: optionalString(toolArguments.topic) ?? '',
-                    kind,
-                    content: optionalString(toolArguments.content) ?? '',
-                    slug: optionalString(toolArguments.slug),
-                }),
-            );
+            return await writeTool(toolArguments);
         }
         case 'memory_reindex': {
             return jsonResult(await reindex());

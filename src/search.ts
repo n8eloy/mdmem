@@ -23,28 +23,30 @@ type Extractor = Awaited<ReturnType<typeof pipeline<'feature-extraction'>>>;
 const cache: { database?: Database.Database; extractor?: Extractor } = {};
 
 export function openDatabase(): Database.Database {
-    if (cache.database) return cache.database;
+    if (cache.database) {
+        return cache.database;
+    }
     mkdirSync(databaseDirectory(), { recursive: true });
     const handle = new Database(databasePath());
     sqliteVec.load(handle);
     handle.pragma('journal_mode = WAL');
     handle.exec(`
-    CREATE TABLE IF NOT EXISTS chunks (
-      chunk_id  TEXT PRIMARY KEY,
-      file_path TEXT NOT NULL,
-      file_hash TEXT NOT NULL,
-      mtime     INTEGER NOT NULL,
-      mem_id    TEXT,
-      type      TEXT,
-      topic     TEXT,
-      status    TEXT,
-      heading   TEXT,
-      excerpt   TEXT
-    );
-    CREATE INDEX IF NOT EXISTS chunks_file ON chunks(file_path);
-    CREATE INDEX IF NOT EXISTS chunks_mem  ON chunks(mem_id);
-    CREATE VIRTUAL TABLE IF NOT EXISTS vec_chunks USING vec0(embedding float[${String(DIM)}]);
-  `);
+        CREATE TABLE IF NOT EXISTS chunks (
+            chunk_id  TEXT PRIMARY KEY,
+            file_path TEXT NOT NULL,
+            file_hash TEXT NOT NULL,
+            mtime     INTEGER NOT NULL,
+            mem_id    TEXT,
+            type      TEXT,
+            topic     TEXT,
+            status    TEXT,
+            heading   TEXT,
+            excerpt   TEXT
+        );
+        CREATE INDEX IF NOT EXISTS chunks_file ON chunks(file_path);
+        CREATE INDEX IF NOT EXISTS chunks_mem  ON chunks(mem_id);
+        CREATE VIRTUAL TABLE IF NOT EXISTS vec_chunks USING vec0(embedding float[${String(DIM)}]);
+    `);
     cache.database = handle;
     return handle;
 }
@@ -73,23 +75,24 @@ interface SearchRow {
     distance: number;
 }
 
+const SEARCH_SQL = `
+    SELECT c.chunk_id, c.file_path, c.mem_id, c.type, c.topic, c.heading, c.excerpt, v.distance
+    FROM vec_chunks v
+    JOIN chunks c ON c.rowid = v.rowid
+    WHERE v.embedding MATCH ? AND k = ?
+    ORDER BY v.distance
+`;
+
 export async function search(query: string, k = 8, filters: { type?: string; topic?: string } = {}): Promise<Hit[]> {
     const conn = openDatabase();
     // BGE v1.5 retrieval instruction: prefix queries (not passages) per the model card.
     const [vector] = await embed([`Represent this sentence for searching relevant passages: ${query}`]);
+
     const isFiltered = Boolean(filters.type) || Boolean(filters.topic);
     // vec0 KNN cannot be joined with arbitrary predicates, so over-fetch then filter.
     const fetchK = isFiltered ? Math.max(k * 8, 64) : k;
     const rows = conn
-        .prepare(
-            `
-      SELECT c.chunk_id, c.file_path, c.mem_id, c.type, c.topic, c.heading, c.excerpt, v.distance
-      FROM vec_chunks v
-      JOIN chunks c ON c.rowid = v.rowid
-      WHERE v.embedding MATCH ? AND k = ?
-      ORDER BY v.distance
-    `,
-        )
+        .prepare(SEARCH_SQL)
         .all(new Uint8Array(vector.buffer, vector.byteOffset, vector.byteLength), fetchK) as SearchRow[];
 
     return rows
