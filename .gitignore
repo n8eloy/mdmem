@@ -1,0 +1,5 @@
+node_modules/
+.mdmem/
+*.db
+*.db-wal
+*.db-shm

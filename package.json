@@ -1,0 +1,46 @@
+{
+    "name": "mdmem",
+    "version": "0.1.0",
+    "private": true,
+    "bin": {
+        "mdmem": "src/cli.ts"
+    },
+    "type": "module",
+    "description": "Local semantic-memory MCP server: vector search over your markdown files, with a disposable sqlite-vec index",
+    "license": "MIT",
+    "repository": "github:n8eloy/mdmem",
+    "keywords": [
+        "mcp",
+        "memory",
+        "markdown",
+        "sqlite-vec",
+        "embeddings",
+        "semantic-search"
+    ],
+    "scripts": {
+        "reindex": "node src/indexer.ts",
+        "start": "node src/server.ts",
+        "lint": "eslint . --max-warnings 0",
+        "lint:fix": "eslint . --max-warnings 0 --fix",
+        "format": "prettier --write .",
+        "format:check": "prettier --check .",
+        "check": "pnpm format:check && pnpm lint && tsc --noEmit"
+    },
+    "dependencies": {
+        "@huggingface/transformers": "^3.7.6",
+        "@modelcontextprotocol/sdk": "^1.21.0",
+        "better-sqlite3": "^12.4.1",
+        "sqlite-vec": "^0.1.7-alpha.2"
+    },
+    "packageManager": "pnpm@11.6.0",
+    "devDependencies": {
+        "@types/better-sqlite3": "^7.6.13",
+        "eslint": "^10.8.0",
+        "eslint-config-prettier": "^10.1.8",
+        "eslint-plugin-unicorn": "^72.0.0",
+        "jiti": "^2.7.0",
+        "prettier": "^3.9.6",
+        "typescript": "^6.0.3",
+        "typescript-eslint": "^8.65.0"
+    }
+}

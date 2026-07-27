@@ -1,0 +1,6 @@
+# Native deps that need their install scripts (better-sqlite3 + onnxruntime prebuilds).
+allowBuilds:
+    better-sqlite3: true
+    onnxruntime-node: true
+    protobufjs: false
+    sharp: false
