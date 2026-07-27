@@ -46,46 +46,55 @@ function writeNote(file: string, fields: [string, string][], body: string): void
     writeFileSync(file, `${frontmatter(fields)}\n${body}\n`);
 }
 
-export async function writeMemory(input: MemoryWriteInput): Promise<MemoryWriteResult> {
-    const store = storeDirectory();
-    if (!store) {
-        throw new Error('no mdmem store configured: run `mdmem init` (an explicit --roots corpus is read-only)');
-    }
-    const topic = slugify(input.topic);
-    if (!topic) throw new Error(`invalid topic: ${JSON.stringify(input.topic)}`);
-    const body = input.content.trim();
-    if (!body) throw new Error('content is empty');
-    const clock = new Date();
-    const now = clock.toISOString();
+/** Replace the topic state file, preserving the original creation date. */
+async function writeState(store: string, topic: string, body: string, now: string): Promise<MemoryWriteResult> {
+    const file = path.join(store, topic, 'state.md');
+    const previous = existsSync(file) ? parseFrontmatter(readFileSync(file, 'utf8')).meta : {};
+    const id = `${topic}-state`;
 
-    if (input.kind === 'state') {
-        const file = path.join(store, topic, 'state.md');
-        const previous = existsSync(file) ? parseFrontmatter(readFileSync(file, 'utf8')).meta : {};
-        const id = `${topic}-state`;
-        const fields: [string, string][] = [
-            ['id', id],
-            ['type', 'state'],
-            ['topic', topic],
-            ['created', previous.created ?? now],
-        ];
-        if (previous.created) fields.push(['updated', now]);
-        fields.push(['status', 'active']);
-        writeNote(file, fields, body);
-        await indexFile(file);
-        return { id, type: 'state', topic, path: file, replaced: Boolean(previous.created) };
+    const fields: [string, string][] = [
+        ['id', id],
+        ['type', 'state'],
+        ['topic', topic],
+        ['created', previous.created ?? now],
+    ];
+    if (previous.created) {
+        fields.push(['updated', now]);
     }
+    fields.push(['status', 'active']);
 
-    const requested = input.slug === undefined ? derivedSlug(body) : slugify(input.slug);
-    if (!requested) throw new Error(`invalid slug: ${JSON.stringify(input.slug)}`);
-    const directory = path.join(store, topic, 'log');
-    const base = `${now.slice(0, 10)}-${requested}`;
-    // Log entries are never overwritten; collisions get a numeric suffix.
+    writeNote(file, fields, body);
+    await indexFile(file);
+    return { id, type: 'state', topic, path: file, replaced: Boolean(previous.created) };
+}
+
+/** First unused `<base>.md` stem in `directory`; log entries are never overwritten. */
+function freeLogStem(directory: string, base: string): string {
     let stem = base;
     for (let attempt = 2; existsSync(path.join(directory, `${stem}.md`)); attempt += 1) {
         stem = `${base}-${String(attempt)}`;
     }
+    return stem;
+}
+
+/** Add a dated log entry under the topic. */
+async function writeLog(
+    store: string,
+    topic: string,
+    body: string,
+    now: string,
+    slug: string | undefined,
+): Promise<MemoryWriteResult> {
+    const requested = slug === undefined ? derivedSlug(body) : slugify(slug);
+    if (!requested) {
+        throw new Error(`invalid slug: ${JSON.stringify(slug)}`);
+    }
+
+    const directory = path.join(store, topic, 'log');
+    const stem = freeLogStem(directory, `${now.slice(0, 10)}-${requested}`);
     const file = path.join(directory, `${stem}.md`);
     const id = `${topic}-${stem}`;
+
     writeNote(
         file,
         [
@@ -99,4 +108,23 @@ export async function writeMemory(input: MemoryWriteInput): Promise<MemoryWriteR
     );
     await indexFile(file);
     return { id, type: 'log', topic, path: file, replaced: false };
+}
+
+export async function writeMemory(input: MemoryWriteInput): Promise<MemoryWriteResult> {
+    const store = storeDirectory();
+    if (!store) {
+        throw new Error('no mdmem store configured: run `mdmem init` (an explicit --roots corpus is read-only)');
+    }
+    const topic = slugify(input.topic);
+    if (!topic) {
+        throw new Error(`invalid topic: ${JSON.stringify(input.topic)}`);
+    }
+    const body = input.content.trim();
+    if (!body) {
+        throw new Error('content is empty');
+    }
+
+    const clock = new Date();
+    const now = clock.toISOString();
+    return input.kind === 'state' ? writeState(store, topic, body, now) : writeLog(store, topic, body, now, input.slug);
 }

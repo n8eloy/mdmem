@@ -19,11 +19,11 @@ import { openDatabase, search } from './search.ts';
 
 const USAGE = `mdmem <command>
 
-  init [--store <dir>]    create the memory home (default ~/.mdmem, or MDMEM_HOME)
-  add <dir>...            register directories in the corpus, then index them
-  index                   incrementally reindex the whole corpus
-  search <query> [-k N]   print ranked hits as "score  id  path"
-  list                    print store, roots, index path and chunk counts
+    init [--store <dir>]    create the memory home (default ~/.mdmem, or MDMEM_HOME)
+    add <dir>...            register directories in the corpus, then index them
+    index                   incrementally reindex the whole corpus
+    search <query> [-k N]   print ranked hits as "score  id  path"
+    list                    print store, roots, index path and chunk counts
 
 Global flags --roots and --db (or MDMEM_ROOTS/MDMEM_DB) override the config file.
 `;
@@ -48,7 +48,9 @@ function positionals(): string[] {
         } else if (token.startsWith('-')) {
             const next = tokens.at(index + 1);
             isFlagValue = !token.includes('=') && next !== undefined && !next.startsWith('-');
-        } else values.push(token);
+        } else {
+            values.push(token);
+        }
     }
     return values;
 }
@@ -56,7 +58,9 @@ function positionals(): string[] {
 function numberFlag(name: string, fallback: number): number {
     const tokens = process.argv.slice(3);
     const index = tokens.indexOf(name);
-    if (index === -1) return fallback;
+    if (index === -1) {
+        return fallback;
+    }
     const value = Number(tokens.at(index + 1));
     return Number.isFinite(value) && value > 0 ? value : fallback;
 }
@@ -80,32 +84,54 @@ function runInit(): void {
     const home = memoryHome();
     const existing = readStoredConfig();
     const store = expand(flag('store') ?? existing?.store ?? path.join(home, 'store'));
+
     for (const directory of [home, store]) {
         out(`${existsSync(directory) ? 'exists ' : 'created'} ${directory}`);
         mkdirSync(directory, { recursive: true });
     }
+
     out(`${existing ? 'exists ' : 'created'} ${configPath()}`);
     writeStoredConfig({ store, roots: existing?.roots ?? [] });
 }
 
-async function runAdd(): Promise<void> {
+/** Positional arguments of `add`, expanded and checked to be existing directories. */
+function directoryArguments(): string[] {
     const directories = positionals().map((d) => expand(d));
-    if (directories.length === 0) fail('add: expected at least one directory');
-    const config = readStoredConfig();
-    if (!config) fail(`no config at ${configPath()}: run \`mdmem init\` first`);
-    for (const directory of directories) {
-        if (!existsSync(directory) || !statSync(directory).isDirectory()) fail(`not a directory: ${directory}`);
+    if (directories.length === 0) {
+        fail('add: expected at least one directory');
     }
+    for (const directory of directories) {
+        if (!existsSync(directory) || !statSync(directory).isDirectory()) {
+            fail(`not a directory: ${directory}`);
+        }
+    }
+    return directories;
+}
+
+async function runAdd(): Promise<void> {
+    const directories = directoryArguments();
+    const config = readStoredConfig();
+    if (!config) {
+        fail(`no config at ${configPath()}: run \`mdmem init\` first`);
+    }
+
     const roots = new Set(config.roots);
-    for (const directory of directories) roots.add(directory);
+    for (const directory of directories) {
+        roots.add(directory);
+    }
     writeStoredConfig({ ...config, roots: [...roots] });
-    for (const directory of directories) out(`registered ${directory}`);
+
+    for (const directory of directories) {
+        out(`registered ${directory}`);
+    }
     await runIndex();
 }
 
 async function runSearch(): Promise<void> {
     const query = positionals().join(' ');
-    if (!query) fail('search: expected a query');
+    if (!query) {
+        fail('search: expected a query');
+    }
     const hits = await search(query, numberFlag('-k', 8));
     for (const hit of hits) {
         out(`${hit.score.toFixed(4)}  ${hit.id}  ${hit.path}`);
@@ -114,7 +140,9 @@ async function runSearch(): Promise<void> {
 
 function runList(): void {
     out(`store  ${storeDirectory() ?? '(none; corpus came from --roots/MDMEM_ROOTS)'}`);
-    for (const root of corpusRoots()) out(`root   ${root}  ${String(chunkCount(root + path.sep))} chunks`);
+    for (const root of corpusRoots()) {
+        out(`root   ${root}  ${String(chunkCount(root + path.sep))} chunks`);
+    }
     out(`db     ${databasePath()}`);
     out(`total  ${String(chunkCount())} chunks`);
 }

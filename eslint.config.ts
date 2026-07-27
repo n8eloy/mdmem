@@ -22,6 +22,12 @@ export default defineConfig([
             },
         },
         rules: {
+            // Every branch and loop body is a block, so single-line bodies cannot hide control flow.
+            curly: ['error', 'all'],
+            // Caps that keep functions readable: split rather than raise these.
+            complexity: ['error', { max: 15 }],
+            'max-depth': ['error', 4],
+            'max-params': ['error', 5],
             // SQLite columns and JSON tool output use null as a real value; undefined is not interchangeable here.
             'unicorn/no-null': 'off',
             // The indexer and the MCP server are CLI entrypoints and must set an exit code.

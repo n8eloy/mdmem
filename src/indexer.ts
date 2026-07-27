@@ -25,20 +25,28 @@ interface Chunk {
 
 /** Lexicographic order, matching the default `Array#sort` comparison for strings. */
 function byCodeUnit(a: string, b: string): number {
-    if (a < b) return -1;
+    if (a < b) {
+        return -1;
+    }
     return a > b ? 1 : 0;
 }
 
 /** Every `*.md` below `directory`, skipping dot-directories and the index directory. */
 function walk(directory: string, out: string[] = []): string[] {
-    if (!existsSync(directory)) return out;
+    if (!existsSync(directory)) {
+        return out;
+    }
     const entries = readdirSync(directory, { withFileTypes: true });
     for (const entry of entries) {
         const full = path.join(directory, entry.name);
         if (entry.isDirectory()) {
-            if (full === databaseDirectory() || entry.name.startsWith('.')) continue;
+            if (full === databaseDirectory() || entry.name.startsWith('.')) {
+                continue;
+            }
             walk(full, out);
-        } else if (entry.name.endsWith('.md')) out.push(full);
+        } else if (entry.name.endsWith('.md')) {
+            out.push(full);
+        }
     }
     return out;
 }
@@ -50,20 +58,30 @@ function corpus(): string[] {
 
 /** Tolerant YAML-ish frontmatter reader: flat `key: value` pairs only. */
 export function parseFrontmatter(raw: string): { meta: Record<string, string | undefined>; body: string } {
-    if (!raw.startsWith('---\n')) return { meta: {}, body: raw };
+    if (!raw.startsWith('---\n')) {
+        return { meta: {}, body: raw };
+    }
     const end = raw.indexOf('\n---', 4);
-    if (end === -1) return { meta: {}, body: raw };
+    if (end === -1) {
+        return { meta: {}, body: raw };
+    }
+
     const meta: Record<string, string | undefined> = {};
     for (const line of raw.slice(4, end).split('\n')) {
         const colon = line.indexOf(':');
-        if (colon === -1 || line.startsWith('#')) continue;
+        if (colon === -1 || line.startsWith('#')) {
+            continue;
+        }
         const value = line
             .slice(colon + 1)
             .split('#', 1)[0]
             .trim()
             .replaceAll(/^["']|["']$/g, '');
-        if (value) meta[line.slice(0, colon).trim()] = value;
+        if (value) {
+            meta[line.slice(0, colon).trim()] = value;
+        }
     }
+
     const lineBreak = raw.indexOf('\n', end + 1);
     return { meta, body: lineBreak === -1 ? '' : raw.slice(lineBreak + 1) };
 }
@@ -73,20 +91,55 @@ function fallbackId(file: string): string {
     const root = corpusRoots()
         .filter((r) => file.startsWith(r + path.sep))
         .toSorted((a, b) => b.length - a.length)[0];
-    if (!root) return path.basename(file, '.md');
+    if (!root) {
+        return path.basename(file, '.md');
+    }
     const relativePath = path.relative(root, file).replace(/\.md$/, '').split(path.sep).join('/');
     return `${path.basename(root)}/${relativePath}`;
+}
+
+interface Section {
+    heading: string | null;
+    text: string;
+}
+
+/** One section for a short body; one section per `##` heading once the body gets long. */
+function splitSections(body: string): Section[] {
+    const lines = body.split('\n');
+    if (lines.length <= MAX_BODY_LINES) {
+        return [{ heading: null, text: body }];
+    }
+
+    const sections: Section[] = [];
+    let heading: string | null = null;
+    let buffer: string[] = [];
+    const flush = () => {
+        if (buffer.join('').trim()) {
+            sections.push({ heading, text: buffer.join('\n') });
+        }
+    };
+
+    for (const line of lines) {
+        if (/^##\s+/.test(line)) {
+            flush();
+            heading = line.replace(/^#+\s*/, '').trim();
+            buffer = [line];
+        } else {
+            buffer.push(line);
+        }
+    }
+    flush();
+    return sections;
 }
 
 function chunkFile(file: string): Chunk[] {
     const stat = statSync(file);
     const raw = readFileSync(file, 'utf8');
-    const hash = createHash('sha256').update(raw).digest('hex');
     const { meta, body } = parseFrontmatter(raw);
     const memId = meta.id ?? fallbackId(file);
     const base = {
         file_path: file,
-        file_hash: hash,
+        file_hash: createHash('sha256').update(raw).digest('hex'),
         mtime: Math.floor(stat.mtimeMs),
         mem_id: memId,
         type: meta.type ?? 'unknown',
@@ -94,27 +147,7 @@ function chunkFile(file: string): Chunk[] {
         status: meta.status ?? 'unknown',
     };
 
-    const lines = body.split('\n');
-    const sections: { heading: string | null; text: string }[] = [];
-    if (lines.length <= MAX_BODY_LINES) {
-        sections.push({ heading: null, text: body });
-    } else {
-        let heading: string | null = null;
-        let buffer: string[] = [];
-        const flush = () => {
-            if (buffer.join('').trim()) sections.push({ heading, text: buffer.join('\n') });
-        };
-        for (const line of lines) {
-            if (/^##\s+/.test(line)) {
-                flush();
-                heading = line.replace(/^#+\s*/, '').trim();
-                buffer = [line];
-            } else buffer.push(line);
-        }
-        flush();
-    }
-
-    return sections.map((section, index) => {
+    return splitSections(body).map((section, index) => {
         // Prepend identity so short chunks still carry topic signal into the embedding.
         const header = [memId, base.topic, section.heading].filter((v) => v && v !== 'unknown').join(' — ');
         return {
@@ -133,6 +166,9 @@ interface KnownRow {
     mtime: number;
 }
 
+/** Content identity of every file currently represented in the index. */
+type KnownFiles = Map<string, { hash: string; mtime: number }>;
+
 /** Remove every row a file owns, from both the metadata table and the vector table. */
 function dropFiles(files: string[]): void {
     const database = openDatabase();
@@ -141,22 +177,30 @@ function dropFiles(files: string[]): void {
             rowid: number;
         }[];
         // vec0 rejects rowids bound as JS numbers (they arrive as doubles); bind BigInt.
-        for (const { rowid } of rowids) database.prepare('DELETE FROM vec_chunks WHERE rowid = ?').run(BigInt(rowid));
+        for (const { rowid } of rowids) {
+            database.prepare('DELETE FROM vec_chunks WHERE rowid = ?').run(BigInt(rowid));
+        }
         database.prepare('DELETE FROM chunks WHERE file_path = ?').run(file);
     });
-    for (const file of files) dropFile(file);
+
+    for (const file of files) {
+        dropFile(file);
+    }
 }
 
 /** Embed the chunks and insert them into both tables. */
 async function insertChunks(pending: Chunk[]): Promise<void> {
-    if (pending.length === 0) return;
+    if (pending.length === 0) {
+        return;
+    }
     const database = openDatabase();
     const vectors = await embed(pending.map((c) => c.text));
+
     const insert = database.transaction(() => {
         const insertChunk = database.prepare(`
-        INSERT INTO chunks (chunk_id, file_path, file_hash, mtime, mem_id, type, topic, status, heading, excerpt)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `);
+            INSERT INTO chunks (chunk_id, file_path, file_hash, mtime, mem_id, type, topic, status, heading, excerpt)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `);
         const insertVector = database.prepare('INSERT INTO vec_chunks (rowid, embedding) VALUES (?, ?)');
         for (const [index, c] of pending.entries()) {
             const { lastInsertRowid } = insertChunk.run(
@@ -187,32 +231,51 @@ export async function indexFile(file: string): Promise<void> {
     await insertChunks(chunkFile(file));
 }
 
-export async function reindex(): Promise<{ changed: number; removed: number; total: number }> {
-    const database = openDatabase();
-    const files = corpus();
-    const known = new Map<string, { hash: string; mtime: number }>();
-    const knownRows = database.prepare('SELECT DISTINCT file_path, file_hash, mtime FROM chunks').all() as KnownRow[];
-    for (const row of knownRows) {
-        known.set(row.file_path, { hash: row.file_hash, mtime: row.mtime });
-    }
+/** What the index already holds, keyed by file path. */
+function loadKnownFiles(): KnownFiles {
+    const rows = openDatabase().prepare('SELECT DISTINCT file_path, file_hash, mtime FROM chunks').all() as KnownRow[];
+    return new Map(rows.map((row) => [row.file_path, { hash: row.file_hash, mtime: row.mtime }]));
+}
 
+/** Corpus files whose content differs from the index, together with their fresh chunks. */
+function collectChanged(files: string[], known: KnownFiles): { stale: string[]; pending: Chunk[] } {
     const stale: string[] = [];
     const pending: Chunk[] = [];
     for (const file of files) {
         const previous = known.get(file);
-        const stat = statSync(file);
-        if (previous?.mtime === Math.floor(stat.mtimeMs)) continue;
+        if (previous?.mtime === Math.floor(statSync(file).mtimeMs)) {
+            continue;
+        }
         const chunks = chunkFile(file);
-        if (previous?.hash === chunks[0].file_hash) continue; // touched but unchanged
+        // Touched but unchanged: the mtime moved, the bytes did not.
+        if (previous?.hash === chunks[0].file_hash) {
+            continue;
+        }
         stale.push(file);
         pending.push(...chunks);
     }
+    return { stale, pending };
+}
 
+/** Indexed files that have disappeared from the corpus. */
+function collectRemoved(files: string[], known: KnownFiles): string[] {
     const present = new Set(files);
     const gone: string[] = [];
     for (const file of known.keys()) {
-        if (!present.has(file)) gone.push(file);
+        if (!present.has(file)) {
+            gone.push(file);
+        }
     }
+    return gone;
+}
+
+export async function reindex(): Promise<{ changed: number; removed: number; total: number }> {
+    const database = openDatabase();
+    const files = corpus();
+    const known = loadKnownFiles();
+
+    const { stale, pending } = collectChanged(files, known);
+    const gone = collectRemoved(files, known);
 
     dropFiles([...stale, ...gone]);
     await insertChunks(pending);
